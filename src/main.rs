@@ -34,6 +34,20 @@ enum Commands {
         /// Input file path
         file: String,
     },
+    /// Mutate an SMT file by applying random transforms
+    Mutate {
+        /// Input file path
+        file: String,
+        /// Rules file path
+        #[arg(short, long)]
+        rules: String,
+        /// Number of mutations to apply per expression
+        #[arg(short, long, default_value = "1")]
+        count: usize,
+        /// Random seed for reproducibility
+        #[arg(short, long)]
+        seed: Option<u64>,
+    },
     /// Start the interactive REPL
     Repl,
 }
@@ -44,6 +58,9 @@ fn main() {
     match cli.command {
         Some(Commands::Strip { file }) => {
             strip_types(&file);
+        }
+        Some(Commands::Mutate { file, rules, count, seed }) => {
+            mutate_file(&file, &rules, count, seed);
         }
         Some(Commands::Repl) | None => {
             run_repl();
@@ -70,6 +87,53 @@ fn strip_types(file: &str) {
 
     for expr in exprs {
         println!("{}", SExprPrinter::print_untyped(&expr));
+    }
+}
+
+fn mutate_file(file: &str, rules_file: &str, count: usize, seed: Option<u64>) {
+    use rand::SeedableRng;
+    use rand::rngs::StdRng;
+
+    // Read input file
+    let content = match std::fs::read_to_string(file) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading file: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Parse expressions
+    let exprs = match Expression::parse_multiple(&content) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Parse error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Load rules
+    let rules = match transform::load_rules(rules_file) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error loading rules: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Initialize RNG
+    let mut rng: StdRng = match seed {
+        Some(s) => StdRng::seed_from_u64(s),
+        None => StdRng::from_entropy(),
+    };
+
+    // Mutate and print each expression
+    for expr in exprs {
+        let (mutated, applied) = transform::mutate_n(&expr, &rules, count, &mut rng);
+        if !applied.is_empty() {
+            eprintln!("; Applied: {}", applied.join(", "));
+        }
+        println!("{}", SExprPrinter::print_untyped(&mutated));
     }
 }
 

@@ -11,7 +11,7 @@ type_name = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
 
 atom = { symbol | number }
 
-symbol = @{ (ASCII_ALPHA | "_" | "?" | "=" | "<" | ">" | "+" | "-" | "*" | "/" | "!") ~ (ASCII_ALPHANUMERIC | "_" | "-" | "+" | "*" | "/" | "=" | "<" | ">" | "?" | "!" | ".")* }
+symbol = @{ (ASCII_ALPHA | "_" | "?" | "=" | "<" | ">" | "+" | "-" | "*" | "/" | "!" | "$") ~ (ASCII_ALPHANUMERIC | "_" | "-" | "+" | "*" | "/" | "=" | "<" | ">" | "?" | "!" | "." | "$")* }
 
 number = @{ "-"? ~ ASCII_DIGIT+ }
 

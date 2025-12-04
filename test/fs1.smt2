@@ -1,4 +1,4 @@
 (declare-const s (FiniteSet Int))
 
-(assert (= s (set.union s (empty-set)))
+(assert (= s:set s:set))
 (check-sat)
