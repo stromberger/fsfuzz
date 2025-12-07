@@ -102,13 +102,13 @@ fn mutate_file(file: &str, rules_file: &str, count: usize, seed: Option<u64>) {
 
 ```bash
 # Apply 1 random mutation
-fsfuzz mutate test/fs1.smt2 --rules transforms.lisp
+fsfuzz mutate test/sat_simple_eq.smt2 --rules transforms.lisp
 
 # Apply 3 mutations with a fixed seed
-fsfuzz mutate test/fs1.smt2 --rules transforms.lisp --count 3 --seed 42
+fsfuzz mutate test/sat_simple_eq.smt2 --rules transforms.lisp --count 3 --seed 42
 
 # Pipe to file
-fsfuzz mutate test/fs1.smt2 --rules transforms.lisp > mutated.smt2
+fsfuzz mutate test/sat_simple_eq.smt2 --rules transforms.lisp > mutated.smt2
 ```
 
 ## Output Format
