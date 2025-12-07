@@ -324,6 +324,94 @@ pub fn mutate_n<R: Rng>(
     (current, applied)
 }
 
+/// Represents a mutation point across the whole program
+struct ProgramMutationPoint {
+    expr_index: usize,
+    path: Vec<usize>,
+    rule_indices: Vec<usize>,
+}
+
+/// Collect all mutation points across all expressions in a program
+fn collect_program_mutation_points(
+    program: &[Expression],
+    rules: &[Rule],
+) -> Vec<ProgramMutationPoint> {
+    let mut all_points = Vec::new();
+
+    for (expr_idx, expr) in program.iter().enumerate() {
+        let mut points = Vec::new();
+        let mut path = Vec::new();
+        collect_mutation_points(expr, rules, &mut path, &mut points);
+
+        for point in points {
+            all_points.push(ProgramMutationPoint {
+                expr_index: expr_idx,
+                path: point.path,
+                rule_indices: point.rule_indices,
+            });
+        }
+    }
+
+    all_points
+}
+
+/// Apply a single random mutation to a program (across all expressions)
+/// Returns the mutated program and the name of the rule applied, or None if no mutation possible
+pub fn mutate_program_once<R: Rng>(
+    program: &[Expression],
+    rules: &[Rule],
+    rng: &mut R,
+) -> Option<(Vec<Expression>, String)> {
+    let points = collect_program_mutation_points(program, rules);
+
+    if points.is_empty() {
+        return None;
+    }
+
+    // Pick a random mutation point
+    let point = points.choose(rng)?;
+
+    // Pick a random applicable rule
+    let rule_idx = *point.rule_indices.choose(rng)?;
+    let rule = &rules[rule_idx];
+
+    // Get the subexpression and apply the rule
+    let expr = &program[point.expr_index];
+    let subexpr = get_at_path(expr, &point.path);
+    let mutated_subexpr = rule.apply_with_rng(subexpr, rng)?;
+
+    // Replace in the expression and rebuild the program
+    let mutated_expr = replace_at_path(expr, &point.path, mutated_subexpr);
+    let mut result = program.to_vec();
+    result[point.expr_index] = mutated_expr;
+
+    Some((result, rule.name.clone()))
+}
+
+/// Apply multiple random mutations to a program
+/// Returns the mutated program and the list of rules applied
+pub fn mutate_program<R: Rng>(
+    program: &[Expression],
+    rules: &[Rule],
+    count: usize,
+    rng: &mut R,
+) -> (Vec<Expression>, Vec<String>) {
+    let mut current = program.to_vec();
+    let mut applied = Vec::new();
+
+    for _ in 0..count {
+        match mutate_program_once(&current, rules, rng) {
+            Some((mutated, rule_name)) => {
+                current = mutated;
+                applied.push(rule_name);
+            }
+            None => break,
+        }
+    }
+
+    (current, applied)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

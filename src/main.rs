@@ -42,7 +42,7 @@ enum Commands {
         #[arg(short, long)]
         rules: String,
         /// Number of mutations to apply per expression
-        #[arg(short, long, default_value = "1")]
+        #[arg(short, long, default_value = "3")]
         count: usize,
         /// Random seed for reproducibility
         #[arg(short, long)]
@@ -147,13 +147,13 @@ fn mutate_file(file: &str, rules_file: &str, count: usize, seed: Option<u64>) {
         None => StdRng::from_entropy(),
     };
 
-    // Mutate and print each expression
-    for expr in exprs {
-        let (mutated, applied) = transform::mutate_n(&expr, &rules, count, &mut rng);
-        if !applied.is_empty() {
-            eprintln!("; Applied: {}", applied.join(", "));
-        }
-        println!("{}", SExprPrinter::print_untyped(&mutated));
+    // Mutate the program
+    let (mutated_exprs, applied) = transform::mutate_program(&exprs, &rules, count, &mut rng);
+    if !applied.is_empty() {
+        eprintln!("; Applied: {}", applied.join(", "));
+    }
+    for expr in mutated_exprs {
+        println!("{}", SExprPrinter::print_untyped(&expr));
     }
 }
 
@@ -271,15 +271,8 @@ fn fuzz_loop(file: &str, rules_file: &str, iterations: usize, max_mutations: usi
         // Pick random mutation count: 1..=max_mutations
         let count = rng.gen_range(1..=max_mutations);
 
-        // Mutate each expression and collect results
-        let mut mutated_exprs = Vec::new();
-        let mut all_applied_rules = Vec::new();
-
-        for expr in &exprs {
-            let (mutated, applied_rules) = transform::mutate_n(expr, &rules, count, &mut rng);
-            mutated_exprs.push(mutated);
-            all_applied_rules.extend(applied_rules);
-        }
+        // Mutate the program
+        let (mutated_exprs, all_applied_rules) = transform::mutate_program(&exprs, &rules, count, &mut rng);
 
         // Convert all expressions to string
         let formula: String = mutated_exprs
