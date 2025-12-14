@@ -25,6 +25,10 @@ pub enum Expression {
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
+    
+    /// Path to z3 executable (default: "z3" in PATH)
+    #[arg(long, global = true)]
+    z3_path: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -52,8 +56,8 @@ enum Commands {
     Repl,
     /// Fuzz z3 with metamorphic mutations
     Fuzz {
-        /// Input file path (seed formula, must be SAT)
-        file: String,
+        /// Directory containing seed formulas
+        dir: String,
         /// Rules file path
         #[arg(short, long)]
         rules: String,
@@ -72,6 +76,8 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
+    let z3_path = cli.z3_path.unwrap_or_else(|| "z3".to_string());
+
     match cli.command {
         Some(Commands::Strip { file }) => {
             strip_types(&file);
@@ -82,8 +88,8 @@ fn main() {
         Some(Commands::Repl) | None => {
             run_repl();
         }
-        Some(Commands::Fuzz { file, rules, iterations, max_mutations, seed }) => {
-            fuzz_loop(&file, &rules, iterations, max_mutations, seed);
+        Some(Commands::Fuzz { dir, rules, iterations, max_mutations, seed }) => {
+            fuzz_loop(&dir, &rules, iterations, max_mutations, seed, &z3_path);
         }
     }
 }
@@ -157,7 +163,6 @@ fn mutate_file(file: &str, rules_file: &str, count: usize, seed: Option<u64>) {
     }
 }
 
-const Z3_PATH: &str = "/Users/alex/Desktop/unistuff/smt/z3/build/z3";
 const Z3_TIMEOUT_SECS: u64 = 10;
 
 enum Z3Result {
@@ -166,13 +171,13 @@ enum Z3Result {
     Error(String),
 }
 
-fn run_z3(formula: &str) -> Z3Result {
+fn run_z3(formula: &str, z3_path: &str) -> Z3Result {
     use std::process::{Command, Stdio};
     use std::io::{Write, Read};
     use std::time::{Duration, Instant};
     use std::thread;
 
-    let mut child = match Command::new(Z3_PATH)
+    let mut child = match Command::new(z3_path)
         .arg("-in")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -220,31 +225,78 @@ fn run_z3(formula: &str) -> Z3Result {
     }
 }
 
-fn fuzz_loop(file: &str, rules_file: &str, iterations: usize, max_mutations: usize, seed: Option<u64>) {
+struct SeedProgram {
+    name: String,
+    exprs: Vec<Expression>,
+    expected: &'static str,
+}
+
+fn fuzz_loop(dir: &str, rules_file: &str, iterations: usize, max_mutations: usize, seed: Option<u64>, z3_path: &str) {
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use rand::Rng;
+    use rand::seq::SliceRandom;
     use std::io::{self, Write};
 
-    // Read input file
-    let content = match std::fs::read_to_string(file) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error reading file: {}", e);
-            std::process::exit(1);
-        }
-    };
-
-    let expected_result = if file.contains("unsat") { "unsat" } else { "sat" };
-
-    // Parse expressions
-    let exprs = match Expression::parse_multiple(&content) {
+    // Read all seed files from directory
+    let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("Parse error: {}", e);
+            eprintln!("Error reading directory: {}", e);
             std::process::exit(1);
         }
     };
+
+    let mut seeds: Vec<SeedProgram> = Vec::new();
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("Error reading directory entry: {}", e);
+                continue;
+            }
+        };
+
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        // Only process .smt2 files
+        if path.extension().map_or(true, |ext| ext != "smt2") {
+            continue;
+        }
+
+        let name = path.file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error reading {}: {}", name, e);
+                continue;
+            }
+        };
+
+        let exprs = match Expression::parse_multiple(&content) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("Parse error in {}: {}", name, e);
+                continue;
+            }
+        };
+
+        let expected = if name.contains("unsat") { "unsat" } else { "sat" };
+
+        seeds.push(SeedProgram { name, exprs, expected });
+    }
+
+    if seeds.is_empty() {
+        eprintln!("No valid .smt2 files found in {}", dir);
+        std::process::exit(1);
+    }
 
     // Load rules
     let rules = match transform::load_rules(rules_file) {
@@ -262,17 +314,23 @@ fn fuzz_loop(file: &str, rules_file: &str, iterations: usize, max_mutations: usi
     };
 
     eprintln!("Fuzzing with {} iterations, max {} mutations per iteration", iterations, max_mutations);
-    eprintln!("Loaded {} rules, {} seed expressions", rules.len(), exprs.len());
+    eprintln!("Loaded {} rules, {} seed programs", rules.len(), seeds.len());
+    for seed_prog in &seeds {
+        eprintln!("  - {} ({}, {} exprs)", seed_prog.name, seed_prog.expected, seed_prog.exprs.len());
+    }
     eprintln!();
 
     let mut bugs_found = 0;
 
     for i in 0..iterations {
+        // Pick a random seed program
+        let seed_prog = seeds.choose(&mut rng).unwrap();
+
         // Pick random mutation count: 1..=max_mutations
         let count = rng.gen_range(1..=max_mutations);
 
         // Mutate the program
-        let (mutated_exprs, all_applied_rules) = transform::mutate_program(&exprs, &rules, count, &mut rng);
+        let (mutated_exprs, all_applied_rules) = transform::mutate_program(&seed_prog.exprs, &rules, count, &mut rng);
 
         // Convert all expressions to string
         let formula: String = mutated_exprs
@@ -282,26 +340,28 @@ fn fuzz_loop(file: &str, rules_file: &str, iterations: usize, max_mutations: usi
             .join("\n");
 
         // Run z3
-        match run_z3(&formula) {
+        match run_z3(&formula, z3_path) {
             Z3Result::Success(result) => {
-                if result == expected_result {
+                if result == seed_prog.expected {
                     eprint!(".");
                     io::stderr().flush().unwrap();
                 } else {
                     bugs_found += 1;
-                    eprintln!("\n[BUG #{}] iteration {}: expected {}, got '{}'", bugs_found, i, expected_result, result);
+                    eprintln!("\n[Issue #{}] iteration {} (seed: {}): expected {}, got '{}'",
+                        bugs_found, i, seed_prog.name, seed_prog.expected, result);
                     eprintln!("Applied rules: {}", all_applied_rules.join(", "));
                     eprintln!("Formula:\n{}\n", formula);
                 }
             }
             Z3Result::Timeout => {
                 bugs_found += 1;
-                eprintln!("\n[BUG #{}] iteration {}: TIMEOUT (>{}s)", bugs_found, i, Z3_TIMEOUT_SECS);
+                eprintln!("\n[Issue #{}] iteration {} (seed: {}): TIMEOUT (>{}s)",
+                    bugs_found, i, seed_prog.name, Z3_TIMEOUT_SECS);
                 eprintln!("Applied rules: {}", all_applied_rules.join(", "));
                 eprintln!("Formula:\n{}\n", formula);
             }
             Z3Result::Error(e) => {
-                eprintln!("\n[ERROR] iteration {}: {}", i, e);
+                eprintln!("\n[ERROR] iteration {} (seed: {}): {}", i, seed_prog.name, e);
             }
         }
     }
@@ -312,7 +372,7 @@ fn fuzz_loop(file: &str, rules_file: &str, iterations: usize, max_mutations: usi
 fn run_repl() {
     use std::io::{self, Write};
 
-    println!("S-Expression Stack REPL");
+    println!("REPL");
     println!("Commands:");
     println!("  <expr>          - Push expression onto stack");
     println!("  :a <rulename>   - Apply rule to top of stack");

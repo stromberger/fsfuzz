@@ -1,7 +1,7 @@
-(define-fun edge-12 () (FiniteSet Int) (set.range 1 2))
-(define-fun edge-23 () (FiniteSet Int) (set.range 2 3))
-(define-fun edge-13 () (FiniteSet Int) (set.union (set.singleton 1) (set.singleton 3)))
-(define-fun edge-34 () (FiniteSet Int) (set.range 3 4))
+(define-const edge-12 (FiniteSet Int) (set.range 1 2))
+(define-const edge-23 (FiniteSet Int) (set.range 2 3))
+(define-const edge-13 (FiniteSet Int) (set.union (set.singleton 1):set (set.singleton 3):set):set)
+(define-const edge-34 (FiniteSet Int) (set.range 3 4):set)
 
 (declare-const clique (FiniteSet Int))
 (assert (= (set.size clique) 3))
