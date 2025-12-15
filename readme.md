@@ -8,7 +8,7 @@ I want to give a short overview of some implementation details of `fsfuzz`. It i
 I implemented the rules in a lisp-ish DSL that is similar to the SMT-LIB2 format, albeit with a simple type system. Expressions can have types denoted with a `:` suffix. For example, `:set` denotes that the expression is of type `set`. By default expressions are untyped and have an implicit `any` type.
 Transformation rules are defined by `deft` with the first argument the pattern and the second one the replacement. In the pattern and replacement expressions can be captured by variables prefixed with `?` (e.g. `?x`). The types in the expression considered for replacement have to match the types in the pattern.
 
-For example a rule that encodes $x in S <=> ({x} union S) = S$ can be defined as:
+For example a rule that encodes $x \in S \iff (\{x\} \cup S) = S$ can be defined as:
 
 ```lisp
 (deft in-to-union-absorb
