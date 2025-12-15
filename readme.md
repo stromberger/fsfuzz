@@ -1,5 +1,5 @@
 # fsfuzz
-A simple adaptable metamorphic fuzzer for SMT-LIB2 programs.
+A simple adaptable metamorphic fuzzer for generating SMT-LIB2 programs.
 
 ## Implementation
 I want to give a short overview of some implementation details of `fsfuzz`. It is implemented in Rust and supports defining arbitrary transformation rules in a SMT-LIB2 like domain specific language. In line with this guest lecture's topic, I provided about a dozen metamorphic relations  and a corpus of seed programs for the theory of finite sets.
